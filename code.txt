@@ -1,0 +1,156 @@
+;; ============================================================
+;; SIMULATION DE SEGREGATION RESIDENTIELLE - Modele de Schelling
+;; ============================================================
+
+;; --- DECLARATION DES RACES (breeds) ---
+breed [groupe1s groupe1]
+breed [groupe2s groupe2]
+
+;; --- PROPRIETES DES AGENTS (turtles-own) ---
+turtles-own [
+  satisfait?       ;; booleen : l'agent est-il satisfait de son voisinage ?
+  seuil            ;; seuil de tolerance individuel (copie du slider)
+]
+
+;; --- VARIABLES GLOBALES ---
+globals [
+  nb-satisfaits        ;; nombre d'agents satisfaits
+  indice-segregation   ;; indice de segregation calcule a chaque tick
+  output-file          ;; nom du fichier CSV d'export
+]
+
+;; ============================================================
+;; PROCEDURE SETUP : initialisation de la simulation
+;; ============================================================
+to setup
+  clear-all
+
+  ;; Creer les agents du groupe 1 (rouge)
+  create-groupe1s nb-groupe1 [
+    set color red
+    set shape "person"
+    set seuil seuil-tolerance
+    set satisfait? false
+    move-to one-of patches with [not any? turtles-here]
+  ]
+
+  ;; Creer les agents du groupe 2 (bleu)
+  create-groupe2s nb-groupe2 [
+    set color blue
+    set shape "person"
+    set seuil seuil-tolerance
+    set satisfait? false
+    move-to one-of patches with [not any? turtles-here]
+  ]
+
+  ;; Initialiser le fichier CSV d'export
+  set output-file "segregation_data.csv"
+  carefully [file-delete output-file] []
+  file-open output-file
+  file-print "tick,satisfaction,nb-demenagements,indice-segregation"
+  file-close
+
+  update-satisfaction
+  reset-ticks
+end
+
+;; ============================================================
+;; PROCEDURE GO : boucle principale de la simulation
+;; ============================================================
+to go
+  ;; Conditions d'arret
+  if ticks >= 500 [ stop ]
+  if nb-satisfaits = count turtles [ stop ]
+
+  let nb-demenagements 0
+
+  ;; Chaque agent verifie son voisinage et demenage si insatisfait
+  ask turtles [
+    verifier-satisfaction
+    if not satisfait? [
+      demenager
+      set nb-demenagements nb-demenagements + 1
+    ]
+  ]
+
+  update-satisfaction
+  calculer-indice-segregation
+  export-data nb-demenagements
+  tick
+end
+
+;; ============================================================
+;; PROCEDURE VERIFIER-SATISFACTION
+;; ============================================================
+to verifier-satisfaction
+  let voisins (turtles-on neighbors)   ;; les 8 cases autour
+
+  ;; Cas isole : agent seul = satisfait par defaut
+  if count voisins = 0 [
+    set satisfait? true
+    stop
+  ]
+
+  ;; Compter les voisins du meme groupe
+  let meme-groupe 0
+  if breed = groupe1s [
+    set meme-groupe count (voisins with [breed = groupe1s])
+  ]
+  if breed = groupe2s [
+    set meme-groupe count (voisins with [breed = groupe2s])
+  ]
+
+  let ratio meme-groupe / count voisins
+
+  ;; Comparer le ratio au seuil de tolerance
+  ifelse ratio >= seuil [
+    set satisfait? true
+    set color ifelse-value (breed = groupe1s) [red] [blue]
+  ][
+    set satisfait? false
+    set color ifelse-value (breed = groupe1s) [orange] [cyan]
+  ]
+end
+
+;; ============================================================
+;; PROCEDURE DEMENAGER
+;; ============================================================
+to demenager
+  let case-libre one-of patches with [not any? turtles-here]
+  if case-libre != nobody [
+    move-to case-libre
+  ]
+end
+
+;; ============================================================
+;; PROCEDURES DE CALCUL DES INDICATEURS
+;; ============================================================
+to update-satisfaction
+  ask turtles [ verifier-satisfaction ]
+  set nb-satisfaits count turtles with [satisfait?]
+end
+
+to calculer-indice-segregation
+  let total-agents count turtles
+  if total-agents = 0 [ set indice-segregation 0  stop ]
+
+  let score 0
+  ask turtles [
+    let voisins turtles-on neighbors
+    if count voisins > 0 [
+      let differents count (voisins with [breed != [breed] of myself])
+      set score score + (differents / count voisins)
+    ]
+  ]
+  ;; 0 = pas de segregation, 1 = segregation totale
+  set indice-segregation 1 - (score / total-agents)
+end
+
+to export-data [nb-dem]
+  file-open output-file
+  file-print (word ticks ","
+    (nb-satisfaits / count turtles * 100) ","
+    nb-dem ","
+    indice-segregation)
+  file-close
+end
